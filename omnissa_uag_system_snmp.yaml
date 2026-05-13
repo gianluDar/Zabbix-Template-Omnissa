@@ -1,0 +1,676 @@
+zabbix_export:
+  version: '7.4'
+
+  template_groups:
+    - uuid: 605c88e300eb4e8f924c13bf1017dfc4
+      name: Templates/Network devices
+
+  templates:
+    - uuid: 926cb0a4a8754f71b4aba088026bee8b
+      template: 'Omnissa UAG System by SNMP'
+      name: 'Omnissa Unified Access Gateway - System by SNMP'
+      description: |
+        Monitoraggio sistema Omnissa Unified Access Gateway (UAG) via SNMP.
+        UAG e' basato su Photon OS / Net-SNMP e non espone MIB proprietarie
+        per il gateway stesso: usa UCD-SNMP-MIB, HOST-RESOURCES-MIB e IF-MIB.
+
+        MIB utilizzate:
+          - SNMPv2-MIB      : info sistema, uptime
+          - UCD-SNMP-MIB    : CPU, memoria, load average
+          - HOST-RESOURCES-MIB : storage (LLD)
+          - IF-MIB          : interfacce di rete (LLD)
+
+        Prerequisiti:
+          - SNMP abilitato dalla Admin UI UAG (System Configuration > SNMP)
+          - SNMPv2c o SNMPv3 (da UAG 20.12+)
+          - Impostare {$SNMP_COMMUNITY} sull'host (default: public)
+          - Interfaccia host Zabbix di tipo SNMP
+
+        Note:
+          - Il template NON copre le metriche applicative UAG (Tunnel, Horizon edge).
+          - UAG non supporta SNMP trap, solo polling.
+          - Testato su UAG 2303 / Photon OS 4.
+
+      groups:
+        - name: Templates/Network devices
+
+      tags:
+        - tag: class
+          value: os
+        - tag: target
+          value: omnissa-uag
+
+      macros:
+        - macro: '{$SNMP_COMMUNITY}'
+          value: public
+          description: 'SNMP v2c community string'
+        - macro: '{$CPU.UTIL.CRIT}'
+          value: '90'
+          description: 'Soglia critica utilizzo CPU (%)'
+        - macro: '{$MEMORY.UTIL.MAX}'
+          value: '90'
+          description: 'Soglia allarme utilizzo RAM (%)'
+        - macro: '{$SWAP.PFREE.MIN}'
+          value: '20'
+          description: 'Soglia minima swap libera (%)'
+        - macro: '{$LOAD.AVG.MAX}'
+          value: '1.5'
+          description: 'Soglia load average 5min / numero vCPU (moltiplicatore)'
+        - macro: '{$IF.ERRORS.WARN}'
+          value: '2'
+          description: 'Soglia errori/s interfaccia di rete'
+        - macro: '{$VFS.FS.UTIL.WARN}'
+          value: '80'
+          description: 'Soglia warning utilizzo filesystem (%)'
+        - macro: '{$VFS.FS.UTIL.CRIT}'
+          value: '90'
+          description: 'Soglia critica utilizzo filesystem (%)'
+        - macro: '{$VFS.FS.INODE.PFREE.MIN}'
+          value: '20'
+          description: 'Soglia minima inode liberi (%)'
+        - macro: '{$IF.UTIL.MAX}'
+          value: '90'
+          description: 'Soglia utilizzo banda interfaccia (%)'
+        - macro: '{$NET.IF.IFNAME.MATCHES}'
+          value: '^eth'
+          description: 'Regex interfacce da includere nella LLD'
+        - macro: '{$NET.IF.IFNAME.NOT_MATCHES}'
+          value: '^lo'
+          description: 'Regex interfacce da escludere dalla LLD'
+        - macro: '{$VFS.FS.FSNAME.NOT_MATCHES}'
+          value: '^(/dev|/sys|/run|/proc|tmpfs|devtmpfs|squashfs|udev|cgmfs)'
+          description: 'Regex filesystem da escludere dalla LLD'
+
+      valuemaps:
+        - uuid: cf4019bb938c4391a62a17bd7a78cbfb
+          name: 'IF-MIB::ifOperStatus'
+          mappings:
+            - value: '1'
+              newvalue: up
+            - value: '2'
+              newvalue: down
+            - value: '3'
+              newvalue: testing
+            - value: '4'
+              newvalue: unknown
+            - value: '5'
+              newvalue: dormant
+            - value: '6'
+              newvalue: notPresent
+            - value: '7'
+              newvalue: lowerLayerDown
+
+      items:
+
+        # ── SYSTEM INFO ──────────────────────────────
+        - uuid: e5607db4fb484c86a8e972e4dc503f73
+          name: 'System: Description'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.1.0'
+          key: 'system.descr'
+          delay: 1h
+          value_type: TEXT
+          description: 'sysDescr - descrizione testuale del sistema (OS, versione UAG).'
+          inventory_link: OS
+          tags:
+            - tag: Application
+              value: System
+
+        - uuid: dacce50335ea4f89ac45fe83c673440b
+          name: 'System: Name'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.5.0'
+          key: 'system.name'
+          delay: 1h
+          value_type: CHAR
+          description: 'sysName - hostname del sistema.'
+          inventory_link: NAME
+          tags:
+            - tag: Application
+              value: System
+
+        - uuid: f7615922367e485e858bfa952e88b429
+          name: 'System: Uptime'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.3.0'
+          key: 'system.uptime'
+          delay: 1m
+          value_type: UNSIGNED
+          units: uptime
+          description: |
+            sysUpTime - tempo dall''ultimo riavvio in centisecondi.
+            Zabbix converte automaticamente con unita' "uptime".
+          tags:
+            - tag: Application
+              value: System
+          triggers:
+            - uuid: 866c3acd1d1a4feba4e28f47fb9df786
+              expression: 'last(/Omnissa UAG System by SNMP/system.uptime)<600'
+              name: 'UAG: System recently rebooted on {HOST.NAME} (uptime < 10m)'
+              opdata: 'Uptime: {ITEM.LASTVALUE1}'
+              priority: WARNING
+              description: 'Il sistema risulta riavviato di recente.'
+              manual_close: 'YES'
+
+        - uuid: 9e14fc3fb9b7455780b9f3b96dc78b6f
+          name: 'System: Contact'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.4.0'
+          key: 'system.contact'
+          delay: 1h
+          value_type: CHAR
+          description: 'sysContact - contatto amministrativo.'
+          inventory_link: CONTACT
+          tags:
+            - tag: Application
+              value: System
+
+        - uuid: 5fd37ea2974949559b72af1d9640f014
+          name: 'System: Location'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.2.1.1.6.0'
+          key: 'system.location'
+          delay: 1h
+          value_type: CHAR
+          description: 'sysLocation - localita'' fisica del sistema.'
+          inventory_link: LOCATION
+          tags:
+            - tag: Application
+              value: System
+
+        # ── CPU (UCD-SNMP-MIB::systemStats) ─────────
+        - uuid: dbb38f0406bf4e5d9861f7cd20413b66
+          name: 'CPU: User time'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.11.9.0'
+          key: 'system.cpu.user'
+          delay: 1m
+          value_type: UNSIGNED
+          units: '%'
+          description: 'UCD-SNMP-MIB::ssCpuUser - percentuale CPU in user space.'
+          tags:
+            - tag: Application
+              value: CPU
+
+        - uuid: d6ca206fa8984bc1beb37f97080ea42e
+          name: 'CPU: System time'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.11.10.0'
+          key: 'system.cpu.system'
+          delay: 1m
+          value_type: UNSIGNED
+          units: '%'
+          description: 'UCD-SNMP-MIB::ssCpuSystem - percentuale CPU in kernel space.'
+          tags:
+            - tag: Application
+              value: CPU
+
+        - uuid: 10077d0c196e49f3981b1d1a73622b53
+          name: 'CPU: Idle time'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.11.11.0'
+          key: 'system.cpu.idle'
+          delay: 1m
+          value_type: UNSIGNED
+          units: '%'
+          description: 'UCD-SNMP-MIB::ssCpuIdle - percentuale CPU idle.'
+          tags:
+            - tag: Application
+              value: CPU
+
+        - uuid: 9286c21c092b4273870270bd1828abb1
+          name: 'CPU: Wait time'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.11.54.0'
+          key: 'system.cpu.wait'
+          delay: 1m
+          value_type: UNSIGNED
+          units: '%'
+          description: 'UCD-SNMP-MIB::ssCpuRawWait derivato - percentuale CPU in I/O wait.'
+          preprocessing:
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          tags:
+            - tag: Application
+              value: CPU
+          triggers:
+            - uuid: ba064fa1ab514713be590aa14a9275f9
+              expression: 'avg(/Omnissa UAG System by SNMP/system.cpu.idle,5m)<(100-{$CPU.UTIL.CRIT})'
+              name: 'UAG: CPU utilization high on {HOST.NAME} (>{$CPU.UTIL.CRIT}% avg 5m)'
+              opdata: 'Idle: {ITEM.LASTVALUE1}%'
+              priority: WARNING
+              description: 'Utilizzo CPU medio negli ultimi 5 minuti superiore alla soglia.'
+              manual_close: 'YES'
+
+        - uuid: 3204688ec5b24943b01578e6b24c7ab5
+          name: 'CPU: Interrupt time'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.11.56.0'
+          key: 'system.cpu.interrupt'
+          delay: 1m
+          value_type: UNSIGNED
+          description: 'UCD-SNMP-MIB::ssCpuRawInterrupt - interrupt hardware.'
+          preprocessing:
+            - type: CHANGE_PER_SECOND
+              parameters:
+                - ''
+          tags:
+            - tag: Application
+              value: CPU
+
+        # ── LOAD AVERAGE (UCD-SNMP-MIB::laTable) ────
+        - uuid: aa8bdfdc3e8e42cdbfbeb5ac792084fc
+          name: 'Load average (1m)'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.10.1.3.1'
+          key: 'system.cpu.load.avg1'
+          delay: 1m
+          value_type: FLOAT
+          description: 'UCD-SNMP-MIB::laLoad.1 - load average ultimo minuto.'
+          tags:
+            - tag: Application
+              value: CPU
+
+        - uuid: 2ae0e471644f41308b40019a1ec17e0e
+          name: 'Load average (5m)'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.10.1.3.2'
+          key: 'system.cpu.load.avg5'
+          delay: 1m
+          value_type: FLOAT
+          description: 'UCD-SNMP-MIB::laLoad.2 - load average 5 minuti.'
+          tags:
+            - tag: Application
+              value: CPU
+          triggers:
+            - uuid: 9d5843833f164de1a99aacdb43ddc323
+              expression: 'avg(/Omnissa UAG System by SNMP/system.cpu.load.avg5,15m)>{$LOAD.AVG.MAX}'
+              name: 'UAG: Load average (5m) high on {HOST.NAME} (>{$LOAD.AVG.MAX})'
+              opdata: 'Load 5m: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+              description: |
+                Load average 5 minuti oltre la soglia. {$LOAD.AVG.MAX} e'
+                espresso in valore assoluto: adattarlo al numero di vCPU dell''appliance.
+              manual_close: 'YES'
+
+        - uuid: d8fda1cdc5554e44ac1b8d6408de1a0e
+          name: 'Load average (15m)'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.10.1.3.3'
+          key: 'system.cpu.load.avg15'
+          delay: 1m
+          value_type: FLOAT
+          description: 'UCD-SNMP-MIB::laLoad.3 - load average 15 minuti.'
+          tags:
+            - tag: Application
+              value: CPU
+
+        # ── MEMORY (UCD-SNMP-MIB::memory) ───────────
+        - uuid: 6ec01e10d9184f59a363aa88011df223
+          name: 'Memory: Total RAM'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.4.5.0'
+          key: 'vm.memory.total'
+          delay: 10m
+          value_type: UNSIGNED
+          units: B
+          description: 'UCD-SNMP-MIB::memTotalReal - RAM totale (kB, moltiplicato x1024).'
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          tags:
+            - tag: Application
+              value: Memory
+
+        - uuid: 5efad5c4becb4229a0cf1cf9619c9489
+          name: 'Memory: Available RAM'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.4.6.0'
+          key: 'vm.memory.available'
+          delay: 1m
+          value_type: UNSIGNED
+          units: B
+          description: 'UCD-SNMP-MIB::memAvailReal - RAM disponibile (kB x1024).'
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          tags:
+            - tag: Application
+              value: Memory
+
+        - uuid: 918bf2a640c6469db46d0503cbdde932
+          name: 'Memory: Buffer RAM'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.4.14.0'
+          key: 'vm.memory.buffers'
+          delay: 2m
+          value_type: UNSIGNED
+          units: B
+          description: 'UCD-SNMP-MIB::memBuffer - RAM usata come buffer (kB x1024).'
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          tags:
+            - tag: Application
+              value: Memory
+
+        - uuid: 01572b2569514ed9930a8a5e80cff7ce
+          name: 'Memory: Cached RAM'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.4.15.0'
+          key: 'vm.memory.cached'
+          delay: 2m
+          value_type: UNSIGNED
+          units: B
+          description: 'UCD-SNMP-MIB::memCached - RAM usata come cache (kB x1024).'
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          tags:
+            - tag: Application
+              value: Memory
+
+        - uuid: 124f62912d9b4809a9cc88c0b46e8b1f
+          name: 'Memory: Used RAM %'
+          type: CALCULATED
+          key: 'vm.memory.util'
+          delay: 2m
+          value_type: FLOAT
+          units: '%'
+          params: '(1 - last(//vm.memory.available) / last(//vm.memory.total)) * 100'
+          description: 'Percentuale RAM utilizzata: (1 - available/total) * 100.'
+          tags:
+            - tag: Application
+              value: Memory
+          triggers:
+            - uuid: 032ebddaa1964916b01ba0eed8e945e2
+              expression: 'avg(/Omnissa UAG System by SNMP/vm.memory.util,5m)>{$MEMORY.UTIL.MAX}'
+              name: 'UAG: Memory utilization high on {HOST.NAME} (>{$MEMORY.UTIL.MAX}% avg 5m)'
+              opdata: 'Used: {ITEM.LASTVALUE1}%'
+              priority: AVERAGE
+              description: 'Utilizzo RAM medio negli ultimi 5 minuti superiore alla soglia.'
+              manual_close: 'YES'
+
+        - uuid: a05ce313e10b4f0e80d3197170919d38
+          name: 'Memory: Total swap'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.4.3.0'
+          key: 'system.swap.total'
+          delay: 10m
+          value_type: UNSIGNED
+          units: B
+          description: 'UCD-SNMP-MIB::memTotalSwap - swap totale (kB x1024).'
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          tags:
+            - tag: Application
+              value: Memory
+
+        - uuid: 95babdb4933d4fe6a1038d2e9f3ac4a4
+          name: 'Memory: Available swap'
+          type: SNMP_AGENT
+          snmp_oid: '1.3.6.1.4.1.2021.4.4.0'
+          key: 'system.swap.available'
+          delay: 2m
+          value_type: UNSIGNED
+          units: B
+          description: 'UCD-SNMP-MIB::memAvailSwap - swap disponibile (kB x1024).'
+          preprocessing:
+            - type: MULTIPLIER
+              parameters:
+                - '1024'
+          tags:
+            - tag: Application
+              value: Memory
+
+        - uuid: 492dfbe27d0a466a8a13c86237dbf535
+          name: 'Memory: Swap utilization %'
+          type: CALCULATED
+          key: 'system.swap.util'
+          delay: 2m
+          value_type: FLOAT
+          units: '%'
+          params: '(1 - last(//system.swap.available) / last(//system.swap.total)) * 100'
+          description: 'Percentuale swap utilizzata.'
+          tags:
+            - tag: Application
+              value: Memory
+          triggers:
+            - uuid: 3ccd3587dc204226a37137a4ad492a31
+              expression: 'last(/Omnissa UAG System by SNMP/system.swap.util)>(100-{$SWAP.PFREE.MIN}) and last(/Omnissa UAG System by SNMP/system.swap.total)>0'
+              name: 'UAG: Swap low on {HOST.NAME} (<{$SWAP.PFREE.MIN}% free)'
+              opdata: 'Swap used: {ITEM.LASTVALUE1}%'
+              priority: WARNING
+              description: 'Spazio swap disponibile inferiore alla soglia.'
+              manual_close: 'YES'
+
+      discovery_rules:
+
+        # ── LLD NETWORK INTERFACES (IF-MIB) ─────────
+        - uuid: 8df084aca67b40bcb3a72a373c3e6938
+          name: 'Network interfaces discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#IFINDEX},1.3.6.1.2.1.2.2.1.1,{#IFDESCR},1.3.6.1.2.1.2.2.1.2,{#IFTYPE},1.3.6.1.2.1.2.2.1.3,{#IFOPERSTATUS},1.3.6.1.2.1.2.2.1.8,{#IFSPEED},1.3.6.1.2.1.2.2.1.5]'
+          key: 'net.if.discovery'
+          delay: 1h
+          description: 'Discovery delle interfacce di rete via IF-MIB.'
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#IFDESCR}'
+                value: '{$NET.IF.IFNAME.MATCHES}'
+                operator: MATCHES_REGEX
+                formulaid: A
+              - macro: '{#IFDESCR}'
+                value: '{$NET.IF.IFNAME.NOT_MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: B
+              - macro: '{#IFTYPE}'
+                value: '^6$'
+                operator: MATCHES_REGEX
+                formulaid: C
+          item_prototypes:
+
+            - uuid: e690af8ca0fe452f9deb8a9ae9234251
+              name: 'Interface {#IFDESCR}: Operational status'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.8.{#IFINDEX}'
+              key: 'net.if.status[{#IFDESCR}]'
+              delay: 1m
+              value_type: UNSIGNED
+              description: 'IF-MIB::ifOperStatus - stato operativo interfaccia.'
+              valuemap:
+                name: 'IF-MIB::ifOperStatus'
+              tags:
+                - tag: Application
+                  value: Network
+
+            - uuid: 145622926e1f4cfca8427459e12d4570
+              name: 'Interface {#IFDESCR}: Inbound traffic'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.6.{#IFINDEX}'
+              key: 'net.if.in[{#IFDESCR}]'
+              delay: 1m
+              value_type: UNSIGNED
+              units: bps
+              description: 'IF-MIB::ifHCInOctets - traffico inbound (64-bit counter, rate bps).'
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+              tags:
+                - tag: Application
+                  value: Network
+
+            - uuid: 9a41e285aceb49aab4651267cfaf55b9
+              name: 'Interface {#IFDESCR}: Outbound traffic'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.31.1.1.1.10.{#IFINDEX}'
+              key: 'net.if.out[{#IFDESCR}]'
+              delay: 1m
+              value_type: UNSIGNED
+              units: bps
+              description: 'IF-MIB::ifHCOutOctets - traffico outbound (64-bit counter, rate bps).'
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+                - type: MULTIPLIER
+                  parameters:
+                    - '8'
+              tags:
+                - tag: Application
+                  value: Network
+
+            - uuid: 84632a1126254dbba2c55309838d028b
+              name: 'Interface {#IFDESCR}: Inbound errors'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.14.{#IFINDEX}'
+              key: 'net.if.in.errors[{#IFDESCR}]'
+              delay: 1m
+              value_type: UNSIGNED
+              units: 'err/s'
+              description: 'IF-MIB::ifInErrors - errori inbound per secondo.'
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              tags:
+                - tag: Application
+                  value: Network
+
+            - uuid: 4f37b7ed83584b95965118f6f4dca719
+              name: 'Interface {#IFDESCR}: Outbound errors'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.2.2.1.20.{#IFINDEX}'
+              key: 'net.if.out.errors[{#IFDESCR}]'
+              delay: 1m
+              value_type: UNSIGNED
+              units: 'err/s'
+              description: 'IF-MIB::ifOutErrors - errori outbound per secondo.'
+              preprocessing:
+                - type: CHANGE_PER_SECOND
+                  parameters:
+                    - ''
+              tags:
+                - tag: Application
+                  value: Network
+
+          trigger_prototypes:
+
+            - uuid: bc1fd4d7270f4140be942e0ff3c4c6d2
+              expression: 'last(/Omnissa UAG System by SNMP/net.if.status[{#IFDESCR}])=2'
+              name: 'UAG: Interface {#IFDESCR} is DOWN on {HOST.NAME}'
+              opdata: 'Status: {ITEM.LASTVALUE1}'
+              priority: AVERAGE
+              description: 'Interfaccia di rete {#IFDESCR} risulta down.'
+              manual_close: 'YES'
+
+            - uuid: 1a16938f625a4cf9ae5a4c3700e15976
+              expression: 'avg(/Omnissa UAG System by SNMP/net.if.in.errors[{#IFDESCR}],5m)>{$IF.ERRORS.WARN} or avg(/Omnissa UAG System by SNMP/net.if.out.errors[{#IFDESCR}],5m)>{$IF.ERRORS.WARN}'
+              name: 'UAG: High error rate on interface {#IFDESCR} on {HOST.NAME}'
+              opdata: 'Errors in: {ITEM.LASTVALUE1}/s, out: {ITEM.LASTVALUE2}/s'
+              priority: WARNING
+              description: 'Tasso di errori sulla interfaccia superiore alla soglia {$IF.ERRORS.WARN}/s.'
+              manual_close: 'YES'
+
+        # ── LLD STORAGE (HOST-RESOURCES-MIB) ────────
+        - uuid: 66d88339bc864d2d954c2f4b08700d48
+          name: 'Filesystem discovery'
+          type: SNMP_AGENT
+          snmp_oid: 'discovery[{#HRST_INDEX},1.3.6.1.2.1.25.2.3.1.1,{#HRST_DESCR},1.3.6.1.2.1.25.2.3.1.3,{#HRST_TYPE},1.3.6.1.2.1.25.2.3.1.2,{#HRST_ALLOC},1.3.6.1.2.1.25.2.3.1.4]'
+          key: 'vfs.fs.discovery'
+          delay: 1h
+          description: 'Discovery dei filesystem via HOST-RESOURCES-MIB::hrStorageTable.'
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#HRST_TYPE}'
+                value: '.*(hrStorageFixedDisk|hrStorageFlashMemory|4).*'
+                operator: MATCHES_REGEX
+                formulaid: A
+              - macro: '{#HRST_DESCR}'
+                value: '{$VFS.FS.FSNAME.NOT_MATCHES}'
+                operator: NOT_MATCHES_REGEX
+                formulaid: B
+          item_prototypes:
+
+            - uuid: cc05043cfe3245ada6bb94d3fb74542d
+              name: 'Filesystem {#HRST_DESCR}: Total space'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.25.2.3.1.5.{#HRST_INDEX}'
+              key: 'vfs.fs.total[{#HRST_DESCR}]'
+              delay: 10m
+              value_type: UNSIGNED
+              units: B
+              description: |
+                HOST-RESOURCES-MIB::hrStorageSize - dimensione totale in blocchi.
+                Moltiplicato per hrStorageAllocationUnits ({#HRST_ALLOC}) per ottenere byte.
+              preprocessing:
+                - type: MULTIPLIER
+                  parameters:
+                    - '{#HRST_ALLOC}'
+              tags:
+                - tag: Application
+                  value: Storage
+
+            - uuid: f837da9669b5402f8eaf8736d4cc2fcd
+              name: 'Filesystem {#HRST_DESCR}: Used space'
+              type: SNMP_AGENT
+              snmp_oid: '1.3.6.1.2.1.25.2.3.1.6.{#HRST_INDEX}'
+              key: 'vfs.fs.used[{#HRST_DESCR}]'
+              delay: 2m
+              value_type: UNSIGNED
+              units: B
+              description: 'HOST-RESOURCES-MIB::hrStorageUsed - spazio usato in blocchi x allocation unit.'
+              preprocessing:
+                - type: MULTIPLIER
+                  parameters:
+                    - '{#HRST_ALLOC}'
+              tags:
+                - tag: Application
+                  value: Storage
+
+            - uuid: 00b83eb6131840ec98ab532f0ba79136
+              name: 'Filesystem {#HRST_DESCR}: Utilization %'
+              type: CALCULATED
+              key: 'vfs.fs.util[{#HRST_DESCR}]'
+              delay: 2m
+              value_type: FLOAT
+              units: '%'
+              params: 'last(//vfs.fs.used[{#HRST_DESCR}]) / last(//vfs.fs.total[{#HRST_DESCR}]) * 100'
+              description: 'Percentuale spazio filesystem utilizzato.'
+              tags:
+                - tag: Application
+                  value: Storage
+
+          trigger_prototypes:
+
+            - uuid: 73b39e904b05417297264912395a047a
+              expression: 'last(/Omnissa UAG System by SNMP/vfs.fs.util[{#HRST_DESCR}])>{$VFS.FS.UTIL.CRIT}'
+              name: 'UAG: Filesystem {#HRST_DESCR} critical on {HOST.NAME} (>{$VFS.FS.UTIL.CRIT}%)'
+              opdata: 'Used: {ITEM.LASTVALUE1}%'
+              priority: HIGH
+              description: 'Filesystem quasi pieno, soglia critica superata.'
+              manual_close: 'YES'
+              dependencies:
+                - name: 'UAG: Filesystem {#HRST_DESCR} warning on {HOST.NAME} (>{$VFS.FS.UTIL.WARN}%)'
+                  expression: 'last(/Omnissa UAG System by SNMP/vfs.fs.util[{#HRST_DESCR}])>{$VFS.FS.UTIL.WARN}'
+
+            - uuid: 676f4b89da6e44fcad92c72d5d2582f1
+              expression: 'last(/Omnissa UAG System by SNMP/vfs.fs.util[{#HRST_DESCR}])>{$VFS.FS.UTIL.WARN}'
+              name: 'UAG: Filesystem {#HRST_DESCR} warning on {HOST.NAME} (>{$VFS.FS.UTIL.WARN}%)'
+              opdata: 'Used: {ITEM.LASTVALUE1}%'
+              priority: AVERAGE
+              description: 'Filesystem in avvicinamento alla soglia critica.'
+              manual_close: 'YES'

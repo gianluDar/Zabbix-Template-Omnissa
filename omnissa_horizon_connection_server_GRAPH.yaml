@@ -1,0 +1,2064 @@
+zabbix_export:
+  version: '7.4'
+  template_groups:
+    - uuid: 'a571c0d144b14fd4a87a9d9b2aa9fcd6'
+      name: Templates/Virtualization
+  templates:
+    - uuid: 'f4c8d2e1a3b546e7890f1234567890ab'
+      template: Omnissa Horizon Connection Server
+      name: Omnissa Horizon Connection Server
+      description: |
+        Monitoraggio Omnissa Horizon 8 (2503+) - Horizon Server REST API.
+        Endpoint monitorati (path reali da Swagger 2503):
+          /monitor/v2/connection-servers    - CS status, sessioni, cert, replica
+          /monitor/v4/virtual-centers       - vCenter status e cert
+          /monitor/v4/ad-domains            - AD domain status
+          /monitor/v5/gateways              - UAG status e connessioni
+          /monitor/v4/saml-authenticators   - SAML auth status
+          /monitor/v2/true-sso              - True SSO status
+          /monitor/v2/farms                 - Farm health
+          /monitor/v2/rds-servers           - RDS server status
+          /monitor/v2/event-database        - Event DB status
+          /monitor/v3/desktop-pools/metrics - Pool metrics (available, errors)
+          /monitor/v1/health-metrics        - Health aggregata di tutti i componenti
+          /monitor/v1/sessions/metrics      - Conteggio sessioni locali/remote
+          /monitor/v1/licenses/usage-metrics- Utilizzo licenze
+          /monitor/v1/machines/count-metrics- Conteggi macchine per stato
+        MACRO: {$HORIZON.URL} {$HORIZON.DOMAIN} {$HORIZON.USER} {$HORIZON.PASSWORD}
+      groups:
+        - name: Templates/Virtualization
+      macros:
+        - macro: '{$HORIZON.URL}'
+          value: 'https://horizon.example.com'
+          description: 'Base URL CS. Accetta: https://IP, https://IP/rest, https://IP/rest/'
+        - macro: '{$HORIZON.DOMAIN}'
+          value: 'DOMAIN'
+          description: 'NetBIOS short name dominio AD (es. CONTOSO non contoso.local)'
+        - macro: '{$HORIZON.USER}'
+          value: 'svc-zabbix'
+          description: 'Username senza prefisso dominio (Read-only Administrators)'
+        - macro: '{$HORIZON.PASSWORD}'
+          value: ''
+          type: SECRET_TEXT
+          description: 'Password account di servizio'
+        - macro: '{$HORIZON.CERT.EXPIRY.WARN}'
+          value: '30'
+          description: 'Warning scadenza certificato (giorni)'
+        - macro: '{$HORIZON.CERT.EXPIRY.CRIT}'
+          value: '7'
+          description: 'Critico scadenza certificato (giorni)'
+        - macro: '{$HORIZON.CONN.WARN.PCT}'
+          value: '80'
+          description: 'Warning utilizzo connection threshold per CS (%)'
+        - macro: '{$HORIZON.SESSION.WARN}'
+          value: '2000'
+          description: 'Warning sessioni totali locali+remote'
+        - macro: '{$HORIZON.LICENSE.WARN.PCT}'
+          value: '80'
+          description: 'Warning utilizzo licenze concurrent (%)'
+        - macro: '{$HORIZON.LICENSE.CRIT.PCT}'
+          value: '95'
+          description: 'Critico utilizzo licenze concurrent (%)'
+        - macro: '{$HORIZON.MACHINE.ERR.WARN}'
+          value: '0'
+          description: 'Warning macchine in errore (0 = alert al primo errore)'
+        - macro: '{$HORIZON.LLD.POOL.FILTER}'
+          value: '.*'
+          description: 'Regex filtro pool per LLD'
+        - macro: '{$HORIZON.LLD.RDS.FILTER}'
+          value: '.*'
+          description: 'Regex filtro RDS server per LLD'
+      items:
+        - uuid: '1a000001000040008000000000000001'
+          name: 'Horizon: Connection Servers raw data'
+          type: SCRIPT
+          key: horizon.raw.connection_servers
+          delay: 1m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v2/connection-servers - status, sessioni, cert, replica'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus() + ' => ' + lr;
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v2/connection-servers');
+          tags:
+            - tag: component
+              value: connection-server
+        - uuid: '1a000002000040008000000000000002'
+          name: 'Horizon: Virtual Centers raw data'
+          type: SCRIPT
+          key: horizon.raw.virtual_centers
+          delay: 2m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v4/virtual-centers - status vCenter e certificati'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v4/virtual-centers', '[]');
+          tags:
+            - tag: component
+              value: vcenter
+        - uuid: '1a000003000040008000000000000003'
+          name: 'Horizon: Farms raw data'
+          type: SCRIPT
+          key: horizon.raw.farms
+          delay: 2m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v2/farms'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v2/farms', '[]');
+          tags:
+            - tag: component
+              value: farm
+        - uuid: '1a000004000040008000000000000004'
+          name: 'Horizon: RDS Servers raw data'
+          type: SCRIPT
+          key: horizon.raw.rds_servers
+          delay: 2m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v2/rds-servers'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v2/rds-servers', '[]');
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '1a000005000040008000000000000005'
+          name: 'Horizon: Gateways raw data'
+          type: SCRIPT
+          key: horizon.raw.gateways
+          delay: 2m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v5/gateways - ultima versione UAG'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v5/gateways', '[]');
+          tags:
+            - tag: component
+              value: gateway
+        - uuid: '1a000006000040008000000000000006'
+          name: 'Horizon: AD Domains raw data'
+          type: SCRIPT
+          key: horizon.raw.ad_domains
+          delay: 5m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v4/ad-domains'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v4/ad-domains', '[]');
+          tags:
+            - tag: component
+              value: ad-domain
+        - uuid: '1a000007000040008000000000000007'
+          name: 'Horizon: Event Database raw data'
+          type: SCRIPT
+          key: horizon.raw.event_database
+          delay: 5m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v2/event-database'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v2/event-database', '{}');
+          tags:
+            - tag: component
+              value: event-database
+        - uuid: '1a000008000040008000000000000008'
+          name: 'Horizon: Desktop Pools metrics raw data'
+          type: SCRIPT
+          key: horizon.raw.desktop_pools
+          delay: 3m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v3/desktop-pools/metrics - stato e conteggi per pool'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v3/desktop-pools/metrics', '[]');
+          tags:
+            - tag: component
+              value: desktop-pool
+        - uuid: '1a000009000040008000000000000009'
+          name: 'Horizon: Health metrics raw data'
+          type: SCRIPT
+          key: horizon.raw.health_metrics
+          delay: 1m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v1/health-metrics - health aggregata di tutti i componenti Horizon'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v1/health-metrics', '{}');
+          tags:
+            - tag: component
+              value: horizon-health
+        - uuid: '1a00000a00004000800000000000000a'
+          name: 'Horizon: Sessions metrics raw data'
+          type: SCRIPT
+          key: horizon.raw.sessions_metrics
+          delay: 1m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v1/sessions/metrics - sessioni locali e remote'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v1/sessions/metrics', '{}');
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '1a00000b00004000800000000000000b'
+          name: 'Horizon: License usage raw data'
+          type: SCRIPT
+          key: horizon.raw.licenses
+          delay: 5m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v1/licenses/usage-metrics - utilizzo licenze concurrent'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v1/licenses/usage-metrics', '{}');
+          tags:
+            - tag: component
+              value: license
+        - uuid: '1a00000c00004000800000000000000c'
+          name: 'Horizon: Machines count metrics raw data'
+          type: SCRIPT
+          key: horizon.raw.machines_metrics
+          delay: 1m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v1/machines/count-metrics - conteggio macchine per stato (error, unreachable, available...)'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v1/machines/count-metrics', '{}');
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '1a00000d00004000800000000000000d'
+          name: 'Horizon: True SSO raw data'
+          type: SCRIPT
+          key: horizon.raw.true_sso
+          delay: 5m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v2/true-sso - stato connettori True SSO'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v2/true-sso', '[]');
+          tags:
+            - tag: component
+              value: true-sso
+        - uuid: '1a00000f00004000800000000000000f'
+          name: 'Horizon: SAML Authenticators raw data'
+          type: SCRIPT
+          key: horizon.raw.saml_authenticators
+          delay: 5m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v4/saml-authenticators'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v4/saml-authenticators', '[]');
+          tags:
+            - tag: component
+              value: saml
+        # ── AGGREGATE DEPENDENT ITEMS ─────────────────────────────────
+        - uuid: '2a000001000040008000000000000001'
+          name: 'Horizon: Connection Servers count'
+          type: DEPENDENT
+          key: horizon.cs.count
+          master_item:
+            key: horizon.raw.connection_servers
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - 'try{return JSON.parse(value).length;}catch(e){return 0;}'
+          tags:
+            - tag: component
+              value: connection-server
+        - uuid: '2a000002000040008000000000000002'
+          name: 'Horizon: Connection Servers OK count'
+          type: DEPENDENT
+          key: horizon.cs.count.ok
+          master_item:
+            key: horizon.raw.connection_servers
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - 'try{return JSON.parse(value).filter(function(c){return c.status==="OK";}).length;}catch(e){return 0;}'
+          tags:
+            - tag: component
+              value: connection-server
+        - uuid: '2a000003000040008000000000000003'
+          name: 'Horizon: Total connections (all CS)'
+          type: DEPENDENT
+          key: horizon.cs.total.connections
+          master_item:
+            key: horizon.raw.connection_servers
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - 'try{return JSON.parse(value).reduce(function(s,c){return s+(c.connection_count||0);},0);}catch(e){return 0;}'
+          tags:
+            - tag: component
+              value: connection-server
+        - uuid: '2a000004000040008000000000000004'
+          name: 'Horizon: Event Database status'
+          type: DEPENDENT
+          key: horizon.eventdb.status
+          master_item:
+            key: horizon.raw.event_database
+          delay: '0'
+          history: 7d
+          trends: '0'
+          value_type: CHAR
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.status'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: NOT_CONFIGURED
+          tags:
+            - tag: component
+              value: event-database
+        - uuid: '2a000005000040008000000000000005'
+          name: 'Horizon: Sessions - local count'
+          type: DEPENDENT
+          key: horizon.sessions.local
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.local_session_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000006000040008000000000000006'
+          name: 'Horizon: Sessions - remote count'
+          type: DEPENDENT
+          key: horizon.sessions.remote
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.remote_session_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000007000040008000000000000007'
+          name: 'Horizon: Sessions - total'
+          type: DEPENDENT
+          key: horizon.sessions.total
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      return (d.local_session_count||0) + (d.remote_session_count||0);
+                  } catch(e) { return 0; }
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000008000040008000000000000008'
+          name: 'Horizon: License - concurrent usage'
+          type: DEPENDENT
+          key: horizon.license.concurrent_usage
+          master_item:
+            key: horizon.raw.licenses
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.concurrent_usage'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: license
+        - uuid: '2a000009000040008000000000000009'
+          name: 'Horizon: License - limit'
+          type: DEPENDENT
+          key: horizon.license.limit
+          master_item:
+            key: horizon.raw.licenses
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      return d.license_limit || d.concurrent_limit || d.total_limit || 0;
+                  } catch(e) { return 0; }
+          tags:
+            - tag: component
+              value: license
+        - uuid: '2a00000a00004000800000000000000a'
+          name: 'Horizon: License - utilization (%)'
+          type: DEPENDENT
+          key: horizon.license.pct
+          master_item:
+            key: horizon.raw.licenses
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: FLOAT
+          units: '%'
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      var used = d.concurrent_usage || 0;
+                      var limit = d.license_limit || d.concurrent_limit || d.total_limit || 0;
+                      if (limit === 0) return 0;
+                      return Math.round((used / limit) * 10000) / 100;
+                  } catch(e) { return 0; }
+          tags:
+            - tag: component
+              value: license
+        - uuid: '2a00000b00004000800000000000000b'
+          name: 'Horizon: License - highest concurrent usage'
+          type: DEPENDENT
+          key: horizon.license.highest_usage
+          master_item:
+            key: horizon.raw.licenses
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.highest_concurrent_usage'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: license
+        - uuid: '2a00000c00004000800000000000000c'
+          name: 'Horizon: Machines - error count'
+          type: DEPENDENT
+          key: horizon.machines.error_count
+          master_item:
+            key: horizon.raw.machines_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Macchine in stato ERROR. Trigger al primo errore.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.error_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '2a00000d00004000800000000000000d'
+          name: 'Horizon: Machines - agent unreachable count'
+          type: DEPENDENT
+          key: horizon.machines.unreachable_count
+          master_item:
+            key: horizon.raw.machines_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Macchine con agent non raggiungibile.'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.agent_unreachable_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '2a00000f00004000800000000000000f'
+          name: 'Horizon: Machines - available count'
+          type: DEPENDENT
+          key: horizon.machines.available_count
+          master_item:
+            key: horizon.raw.machines_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.available_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '2a000010000040008000000000000010'
+          name: 'Horizon: Machines - connected count'
+          type: DEPENDENT
+          key: horizon.machines.connected_count
+          master_item:
+            key: horizon.raw.machines_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.connected_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '2a000011000040008000000000000011'
+          name: 'Horizon: Machines - disconnected count'
+          type: DEPENDENT
+          key: horizon.machines.disconnected_count
+          master_item:
+            key: horizon.raw.machines_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.disconnected_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '2a000012000040008000000000000012'
+          name: 'Horizon: Machines - provisioning error count'
+          type: DEPENDENT
+          key: horizon.machines.provisioning_error_count
+          master_item:
+            key: horizon.raw.machines_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.provisioning_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: machines
+        - uuid: '2a000013000040008000000000000013'
+          name: 'Horizon: Desktop Pools count'
+          type: DEPENDENT
+          key: horizon.pools.count
+          master_item:
+            key: horizon.raw.desktop_pools
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - 'try{return JSON.parse(value).length;}catch(e){return 0;}'
+          tags:
+            - tag: component
+              value: desktop-pool
+      discovery_rules:
+        - uuid: '3a000001000040008000000000000001'
+          name: 'Horizon: Connection Servers discovery'
+          type: DEPENDENT
+          key: horizon.discovery.connection_servers
+          master_item:
+            key: horizon.raw.connection_servers
+          delay: '0'
+          lifetime: 3d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(cs){
+                          return {'{#CS.NAME}':cs.name,'{#CS.ID}':cs.id,
+                                  '{#CS.VER}':cs.details?cs.details.version:'unknown'};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4a000001000040008000000000000001'
+              name: 'CS [{#CS.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.cs.status[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];return c?(c.status||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a000002000040008000000000000002'
+              name: 'CS [{#CS.NAME}]: Connection count'
+              type: DEPENDENT
+              key: 'horizon.cs.connections[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];return c?(c.connection_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a000003000040008000000000000003'
+              name: 'CS [{#CS.NAME}]: Tunnel connections'
+              type: DEPENDENT
+              key: 'horizon.cs.tunnel_connections[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];return c?(c.tunnel_connection_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a000004000040008000000000000004'
+              name: 'CS [{#CS.NAME}]: Session threshold'
+              type: DEPENDENT
+              key: 'horizon.cs.session_threshold[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];return c?(c.session_threshold||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a000005000040008000000000000005'
+              name: 'CS [{#CS.NAME}]: BLAST sessions'
+              type: DEPENDENT
+              key: 'horizon.cs.sessions.blast[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.session_protocol_data)return 0;var p=c.session_protocol_data.filter(function(x){return x.session_protocol==="BLAST";})[0];return p?p.session_count:0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a000006000040008000000000000006'
+              name: 'CS [{#CS.NAME}]: PCoIP sessions'
+              type: DEPENDENT
+              key: 'horizon.cs.sessions.pcoip[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.session_protocol_data)return 0;var p=c.session_protocol_data.filter(function(x){return x.session_protocol==="PCOIP";})[0];return p?p.session_count:0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a000007000040008000000000000007'
+              name: 'CS [{#CS.NAME}]: Certificate valid'
+              type: DEPENDENT
+              key: 'horizon.cs.cert.valid[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.certificate)return 0;return c.certificate.valid?1:0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '4a000008000040008000000000000008'
+              name: 'CS [{#CS.NAME}]: Certificate expiry (days)'
+              type: DEPENDENT
+              key: 'horizon.cs.cert.expiry_days[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: FLOAT
+              units: days
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.certificate||!c.certificate.valid_to)return -1;return Math.floor((c.certificate.valid_to-Date.now())/86400000);}catch(e){return -1;}'
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '4a000009000040008000000000000009'
+              name: 'CS [{#CS.NAME}]: Replication status'
+              type: DEPENDENT
+              key: 'horizon.cs.replication.status[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.cs_replications||c.cs_replications.length===0)return "OK";var b=c.cs_replications.filter(function(r){return r.status!=="OK";});return b.length===0?"OK":"ERROR:"+b.map(function(r){return r.server_name;}).join(",");}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a00000a00004000800000000000000a'
+              name: 'CS [{#CS.NAME}]: Connection utilization (%)'
+              type: DEPENDENT
+              key: 'horizon.cs.conn.pct[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: FLOAT
+              units: '%'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.session_threshold||c.session_threshold===0)return 0;return Math.round((c.connection_count/c.session_threshold)*10000)/100;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a00000b00004000800000000000000b'
+              name: 'CS [{#CS.NAME}]: Version'
+              type: DEPENDENT
+              key: 'horizon.cs.version[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];if(!c||!c.details)return "unknown";return (c.details.version||"unknown")+" ("+(c.details.build||"")+")"}catch(e){return "unknown";}'
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '4a00000c00004000800000000000000c'
+              name: 'CS [{#CS.NAME}]: Default certificate'
+              type: DEPENDENT
+              key: 'horizon.cs.cert.default[{#CS.NAME}]'
+              master_item:
+                key: horizon.raw.connection_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),c=d.filter(function(x){return x.name==="{#CS.NAME}";})[0];return (c&&c.default_certificate)?1:0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: certificate
+          trigger_prototypes:
+            - uuid: '5a000001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.status[{#CS.NAME}])<>"OK"'
+              name: 'CS [{#CS.NAME}]: Status is {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '5a000002000040008000000000000002'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.cert.valid[{#CS.NAME}])=0'
+              name: 'CS [{#CS.NAME}]: Certificato SSL non valido'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5a000003000040008000000000000003'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.cert.expiry_days[{#CS.NAME}])<{$HORIZON.CERT.EXPIRY.CRIT} and last(/Omnissa Horizon Connection Server/horizon.cs.cert.expiry_days[{#CS.NAME}])>=0'
+              name: 'CS [{#CS.NAME}]: Certificato scade tra {ITEM.VALUE} giorni (CRITICO)'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5a000004000040008000000000000004'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.cert.expiry_days[{#CS.NAME}])<{$HORIZON.CERT.EXPIRY.WARN} and last(/Omnissa Horizon Connection Server/horizon.cs.cert.expiry_days[{#CS.NAME}])>={$HORIZON.CERT.EXPIRY.CRIT}'
+              name: 'CS [{#CS.NAME}]: Certificato scade tra {ITEM.VALUE} giorni'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5a000005000040008000000000000005'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.conn.pct[{#CS.NAME}])>{$HORIZON.CONN.WARN.PCT}'
+              name: 'CS [{#CS.NAME}]: Connessioni al {ITEM.VALUE}% del threshold'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '5a000006000040008000000000000006'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.replication.status[{#CS.NAME}])<>"OK"'
+              name: 'CS [{#CS.NAME}]: Problema replica LDAP ({ITEM.VALUE})'
+              priority: AVERAGE
+              tags:
+                - tag: component
+                  value: connection-server
+            - uuid: '5a000007000040008000000000000007'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.cert.default[{#CS.NAME}])=1'
+              name: 'CS [{#CS.NAME}]: Usa certificato self-signed di default'
+              priority: INFO
+              tags:
+                - tag: component
+                  value: certificate
+          graph_prototypes:
+            - uuid: '8a000001000040008000000000000001'
+              name: 'CS [{#CS.NAME}]: Sessioni per protocollo'
+              graph_items:
+                - color: 2774A4
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.cs.sessions.blast[{#CS.NAME}]'
+                - sortorder: '1'
+                  color: F68C20
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.cs.sessions.pcoip[{#CS.NAME}]'
+            - uuid: '8a000002000040008000000000000002'
+              name: 'CS [{#CS.NAME}]: Scadenza certificato (giorni)'
+              graph_items:
+                - color: 2774A4
+                  drawtype: BOLD_LINE
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.cs.cert.expiry_days[{#CS.NAME}]'
+        - uuid: '3a000002000040008000000000000002'
+          name: 'Horizon: Virtual Centers discovery'
+          type: DEPENDENT
+          key: horizon.discovery.virtual_centers
+          master_item:
+            key: horizon.raw.virtual_centers
+          delay: '0'
+          lifetime: 3d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(v){
+                          return {'{#VC.NAME}':v.name||v.server_name||v.id,'{#VC.ID}':v.id};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4b000001000040008000000000000001'
+              name: 'vCenter [{#VC.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.vc.status[{#VC.NAME}]'
+              master_item:
+                key: horizon.raw.virtual_centers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),v=d.filter(function(x){return (x.name||x.server_name||x.id)==="{#VC.NAME}";})[0];return v?(v.status||v.health||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: vcenter
+            - uuid: '4b000002000040008000000000000002'
+              name: 'vCenter [{#VC.NAME}]: Certificate valid'
+              type: DEPENDENT
+              key: 'horizon.vc.cert.valid[{#VC.NAME}]'
+              master_item:
+                key: horizon.raw.virtual_centers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),v=d.filter(function(x){return (x.name||x.server_name||x.id)==="{#VC.NAME}";})[0];if(!v||!v.certificate)return 1;return v.certificate.valid?1:0;}catch(e){return 1;}'
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '4b000003000040008000000000000003'
+              name: 'vCenter [{#VC.NAME}]: Certificate expiry (days)'
+              type: DEPENDENT
+              key: 'horizon.vc.cert.expiry_days[{#VC.NAME}]'
+              master_item:
+                key: horizon.raw.virtual_centers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: FLOAT
+              units: days
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),v=d.filter(function(x){return (x.name||x.server_name||x.id)==="{#VC.NAME}";})[0];if(!v||!v.certificate||!v.certificate.valid_to)return 9999;return Math.floor((v.certificate.valid_to-Date.now())/86400000);}catch(e){return 9999;}'
+              tags:
+                - tag: component
+                  value: certificate
+          trigger_prototypes:
+            - uuid: '5b000001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.vc.status[{#VC.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.vc.status[{#VC.NAME}])<>"UNKNOWN"'
+              name: 'vCenter [{#VC.NAME}]: Status is {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: vcenter
+            - uuid: '5b000002000040008000000000000002'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.vc.cert.expiry_days[{#VC.NAME}])<{$HORIZON.CERT.EXPIRY.CRIT} and last(/Omnissa Horizon Connection Server/horizon.vc.cert.expiry_days[{#VC.NAME}])>=0'
+              name: 'vCenter [{#VC.NAME}]: Certificato scade tra {ITEM.VALUE} giorni (CRITICO)'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5b000004000040008000000000000004'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.vc.cert.expiry_days[{#VC.NAME}])<{$HORIZON.CERT.EXPIRY.WARN} and last(/Omnissa Horizon Connection Server/horizon.vc.cert.expiry_days[{#VC.NAME}])>={$HORIZON.CERT.EXPIRY.CRIT}'
+              name: 'vCenter [{#VC.NAME}]: Certificato scade tra {ITEM.VALUE} giorni'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5b000003000040008000000000000003'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.vc.cert.valid[{#VC.NAME}])=0'
+              name: 'vCenter [{#VC.NAME}]: Certificato non valido'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+        - uuid: '3a000003000040008000000000000003'
+          name: 'Horizon: AD Domains discovery'
+          type: DEPENDENT
+          key: horizon.discovery.ad_domains
+          master_item:
+            key: horizon.raw.ad_domains
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(d){
+                          return {'{#AD.NAME}':d.dns_name||d.name||d.id,'{#AD.ID}':d.id};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4d000001000040008000000000000001'
+              name: 'AD Domain [{#AD.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.ad.status[{#AD.NAME}]'
+              master_item:
+                key: horizon.raw.ad_domains
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),x=d.filter(function(a){return (a.dns_name||a.name||a.id)==="{#AD.NAME}";})[0];return x?(x.status||x.connection_status||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: ad-domain
+            - uuid: '4d000002000040008000000000000002'
+              name: 'AD Domain [{#AD.NAME}]: NetBIOS name'
+              type: DEPENDENT
+              key: 'horizon.ad.netbios[{#AD.NAME}]'
+              master_item:
+                key: horizon.raw.ad_domains
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),x=d.filter(function(a){return (a.dns_name||a.name||a.id)==="{#AD.NAME}";})[0];return x?(x.net_bios_name||x.name||""):""}catch(e){return "";}'
+              tags:
+                - tag: component
+                  value: ad-domain
+          trigger_prototypes:
+            - uuid: '5d000001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.ad.status[{#AD.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.ad.status[{#AD.NAME}])<>"UNKNOWN"'
+              name: 'AD Domain [{#AD.NAME}]: Status is {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: ad-domain
+        - uuid: '3a000004000040008000000000000004'
+          name: 'Horizon: Gateways (UAG) discovery'
+          type: DEPENDENT
+          key: horizon.discovery.gateways
+          master_item:
+            key: horizon.raw.gateways
+          delay: '0'
+          lifetime: 3d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(g){
+                          return {'{#GW.NAME}':g.name||g.address||g.id,'{#GW.ID}':g.id,'{#GW.TYPE}':g.type||'AP'};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4f000001000040008000000000000001'
+              name: 'Gateway [{#GW.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.gw.status[{#GW.NAME}]'
+              master_item:
+                key: horizon.raw.gateways
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),g=d.filter(function(x){return (x.name||x.address||x.id)==="{#GW.NAME}";})[0];return g?(g.status||g.health||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: gateway
+            - uuid: '4f000002000040008000000000000002'
+              name: 'Gateway [{#GW.NAME}]: Active connections'
+              type: DEPENDENT
+              key: 'horizon.gw.connections[{#GW.NAME}]'
+              master_item:
+                key: horizon.raw.gateways
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),g=d.filter(function(x){return (x.name||x.address||x.id)==="{#GW.NAME}";})[0];return g?(g.active_connection_count||g.connection_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: gateway
+            - uuid: '4f000003000040008000000000000003'
+              name: 'Gateway [{#GW.NAME}]: Type'
+              type: DEPENDENT
+              key: 'horizon.gw.type[{#GW.NAME}]'
+              master_item:
+                key: horizon.raw.gateways
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),g=d.filter(function(x){return (x.name||x.address||x.id)==="{#GW.NAME}";})[0];return g?(g.type||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: gateway
+            - uuid: '4f000004000040008000000000000004'
+              name: 'Gateway [{#GW.NAME}]: Certificate valid'
+              type: DEPENDENT
+              key: 'horizon.gw.cert.valid[{#GW.NAME}]'
+              master_item:
+                key: horizon.raw.gateways
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: UNSIGNED
+              description: '1=certificato valido, 0=non valido. Basato sul campo certificate del gateway.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),g=d.filter(function(x){return (x.name||x.address||x.id)==="{#GW.NAME}";})[0];if(!g||!g.certificate)return 1;return g.certificate.valid?1:0;}catch(e){return 1;}'
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '4f000005000040008000000000000005'
+              name: 'Gateway [{#GW.NAME}]: Certificate expiry (days)'
+              type: DEPENDENT
+              key: 'horizon.gw.cert.expiry_days[{#GW.NAME}]'
+              master_item:
+                key: horizon.raw.gateways
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: FLOAT
+              units: days
+              description: 'Giorni alla scadenza del certificato UAG. -1 se dato non disponibile.'
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),g=d.filter(function(x){return (x.name||x.address||x.id)==="{#GW.NAME}";})[0];if(!g||!g.certificate||!g.certificate.valid_to)return -1;return Math.floor((g.certificate.valid_to-Date.now())/86400000);}catch(e){return -1;}'
+              tags:
+                - tag: component
+                  value: certificate
+          trigger_prototypes:
+            - uuid: '5f000001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.gw.status[{#GW.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.gw.status[{#GW.NAME}])<>"UNKNOWN"'
+              name: 'Gateway [{#GW.NAME}]: Status is {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: gateway
+            - uuid: '5f000002000040008000000000000002'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.gw.cert.valid[{#GW.NAME}])=0'
+              name: 'Gateway [{#GW.NAME}]: Certificato SSL non valido'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5f000003000040008000000000000003'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.gw.cert.expiry_days[{#GW.NAME}])<{$HORIZON.CERT.EXPIRY.CRIT} and last(/Omnissa Horizon Connection Server/horizon.gw.cert.expiry_days[{#GW.NAME}])>=0'
+              name: 'Gateway [{#GW.NAME}]: Certificato scade tra {ITEM.VALUE} giorni (CRITICO)'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5f000004000040008000000000000004'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.gw.cert.expiry_days[{#GW.NAME}])<{$HORIZON.CERT.EXPIRY.WARN} and last(/Omnissa Horizon Connection Server/horizon.gw.cert.expiry_days[{#GW.NAME}])>={$HORIZON.CERT.EXPIRY.CRIT}'
+              name: 'Gateway [{#GW.NAME}]: Certificato scade tra {ITEM.VALUE} giorni'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: certificate
+        - uuid: '3a000005000040008000000000000005'
+          name: 'Horizon: Farms discovery'
+          type: DEPENDENT
+          key: horizon.discovery.farms
+          master_item:
+            key: horizon.raw.farms
+          delay: '0'
+          lifetime: 3d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(f){
+                          return {'{#FARM.NAME}':f.name,'{#FARM.ID}':f.id,'{#FARM.TYPE}':f.type||'AUTOMATED'};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4c000001000040008000000000000001'
+              name: 'Farm [{#FARM.NAME}]: Health'
+              type: DEPENDENT
+              key: 'horizon.farm.health[{#FARM.NAME}]'
+              master_item:
+                key: horizon.raw.farms
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),f=d.filter(function(x){return x.name==="{#FARM.NAME}";})[0];return f?(f.health||f.status||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: farm
+            - uuid: '4c000002000040008000000000000002'
+              name: 'Farm [{#FARM.NAME}]: RDS server count'
+              type: DEPENDENT
+              key: 'horizon.farm.rds_count[{#FARM.NAME}]'
+              master_item:
+                key: horizon.raw.farms
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),f=d.filter(function(x){return x.name==="{#FARM.NAME}";})[0];return f?(f.rds_server_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: farm
+            - uuid: '4c000003000040008000000000000003'
+              name: 'Farm [{#FARM.NAME}]: Session count'
+              type: DEPENDENT
+              key: 'horizon.farm.sessions[{#FARM.NAME}]'
+              master_item:
+                key: horizon.raw.farms
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),f=d.filter(function(x){return x.name==="{#FARM.NAME}";})[0];return f?(f.session_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: farm
+          trigger_prototypes:
+            - uuid: '5c000001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.farm.health[{#FARM.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.farm.health[{#FARM.NAME}])<>"UNKNOWN"'
+              name: 'Farm [{#FARM.NAME}]: Health is {ITEM.VALUE}'
+              priority: AVERAGE
+              tags:
+                - tag: component
+                  value: farm
+        - uuid: '3a000006000040008000000000000006'
+          name: 'Horizon: RDS Servers discovery'
+          type: DEPENDENT
+          key: horizon.discovery.rds_servers
+          master_item:
+            key: horizon.raw.rds_servers
+          delay: '0'
+          lifetime: 3d
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#RDS.NAME}'
+                value: '{$HORIZON.LLD.RDS.FILTER}'
+                formulaid: A
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(s){
+                          return {'{#RDS.NAME}':s.name,'{#RDS.ID}':s.id,'{#RDS.FARM_ID}':s.farm_id||''};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4e000001000040008000000000000001'
+              name: 'RDS [{#RDS.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.rds.status[{#RDS.NAME}]'
+              master_item:
+                key: horizon.raw.rds_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return x.name==="{#RDS.NAME}";})[0];return s?(s.status||s.state||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: rds-server
+            - uuid: '4e000002000040008000000000000002'
+              name: 'RDS [{#RDS.NAME}]: Session count'
+              type: DEPENDENT
+              key: 'horizon.rds.sessions[{#RDS.NAME}]'
+              master_item:
+                key: horizon.raw.rds_servers
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return x.name==="{#RDS.NAME}";})[0];return s?(s.session_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: rds-server
+            - uuid: '4e000003000040008000000000000003'
+              name: 'RDS [{#RDS.NAME}]: Agent version'
+              type: DEPENDENT
+              key: 'horizon.rds.agent_version[{#RDS.NAME}]'
+              master_item:
+                key: horizon.raw.rds_servers
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return x.name==="{#RDS.NAME}";})[0];return s?(s.agent_version||"unknown"):"unknown";}catch(e){return "unknown";}'
+              tags:
+                - tag: component
+                  value: rds-server
+          trigger_prototypes:
+            - uuid: '5e000001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.rds.status[{#RDS.NAME}])<>"AVAILABLE" and last(/Omnissa Horizon Connection Server/horizon.rds.status[{#RDS.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.rds.status[{#RDS.NAME}])<>"UNKNOWN"'
+              name: 'RDS [{#RDS.NAME}]: Status is {ITEM.VALUE}'
+              priority: AVERAGE
+              tags:
+                - tag: component
+                  value: rds-server
+        - uuid: '3a000007000040008000000000000007'
+          name: 'Horizon: Desktop Pools discovery'
+          type: DEPENDENT
+          key: horizon.discovery.desktop_pools
+          master_item:
+            key: horizon.raw.desktop_pools
+          delay: '0'
+          lifetime: 3d
+          filter:
+            evaltype: AND
+            conditions:
+              - macro: '{#POOL.NAME}'
+                value: '{$HORIZON.LLD.POOL.FILTER}'
+                formulaid: A
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      return JSON.stringify(JSON.parse(value).map(function(p){
+                          return {'{#POOL.NAME}':p.name,'{#POOL.ID}':p.id,
+                                  '{#POOL.TYPE}':p.type||'AUTOMATED','{#POOL.SOURCE}':p.source||''};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4a100001000040008000000000000001'
+              name: 'Pool [{#POOL.NAME}]: Health'
+              type: DEPENDENT
+              key: 'horizon.pool.health[{#POOL.NAME}]'
+              master_item:
+                key: horizon.raw.desktop_pools
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),p=d.filter(function(x){return x.name==="{#POOL.NAME}";})[0];return p?(p.health||p.status||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '4a100002000040008000000000000002'
+              name: 'Pool [{#POOL.NAME}]: Available machines'
+              type: DEPENDENT
+              key: 'horizon.pool.available[{#POOL.NAME}]'
+              master_item:
+                key: horizon.raw.desktop_pools
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),p=d.filter(function(x){return x.name==="{#POOL.NAME}";})[0];return p?(p.available_count||p.num_desktops_available||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '4a100003000040008000000000000003'
+              name: 'Pool [{#POOL.NAME}]: Connected sessions'
+              type: DEPENDENT
+              key: 'horizon.pool.connected[{#POOL.NAME}]'
+              master_item:
+                key: horizon.raw.desktop_pools
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),p=d.filter(function(x){return x.name==="{#POOL.NAME}";})[0];return p?(p.connected_count||p.num_sessions||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '4a100004000040008000000000000004'
+              name: 'Pool [{#POOL.NAME}]: Error count'
+              type: DEPENDENT
+              key: 'horizon.pool.error_count[{#POOL.NAME}]'
+              master_item:
+                key: horizon.raw.desktop_pools
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),p=d.filter(function(x){return x.name==="{#POOL.NAME}";})[0];return p?(p.provisioning_error_count||p.error_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '4a100005000040008000000000000005'
+              name: 'Pool [{#POOL.NAME}]: Agent unreachable count'
+              type: DEPENDENT
+              key: 'horizon.pool.unreachable[{#POOL.NAME}]'
+              master_item:
+                key: horizon.raw.desktop_pools
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),p=d.filter(function(x){return x.name==="{#POOL.NAME}";})[0];return p?(p.agent_unreachable_count||0):0;}catch(e){return 0;}'
+              tags:
+                - tag: component
+                  value: desktop-pool
+          trigger_prototypes:
+            - uuid: '5a100001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.pool.health[{#POOL.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.pool.health[{#POOL.NAME}])<>"UNKNOWN"'
+              name: 'Pool [{#POOL.NAME}]: Health is {ITEM.VALUE}'
+              priority: AVERAGE
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '5a100002000040008000000000000002'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.pool.error_count[{#POOL.NAME}])>0'
+              name: 'Pool [{#POOL.NAME}]: {ITEM.VALUE} macchine in errore di provisioning'
+              priority: AVERAGE
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '5a100003000040008000000000000003'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.pool.unreachable[{#POOL.NAME}])>0'
+              name: 'Pool [{#POOL.NAME}]: {ITEM.VALUE} agent non raggiungibili'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: desktop-pool
+            - uuid: '5a100004000040008000000000000004'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.pool.available[{#POOL.NAME}])=0'
+              name: 'Pool [{#POOL.NAME}]: Nessuna macchina disponibile'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: desktop-pool
+          graph_prototypes:
+            - uuid: '8a000003000040008000000000000003'
+              name: 'Pool [{#POOL.NAME}]: Macchine per stato'
+              graph_items:
+                - color: 1A7C11
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.pool.available[{#POOL.NAME}]'
+                - sortorder: '1'
+                  color: 2774A4
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.pool.connected[{#POOL.NAME}]'
+                - sortorder: '2'
+                  color: E45959
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.pool.error_count[{#POOL.NAME}]'
+                - sortorder: '3'
+                  color: F68C20
+                  calc_fnc: LAST
+                  item:
+                    host: 'Omnissa Horizon Connection Server'
+                    key: 'horizon.pool.unreachable[{#POOL.NAME}]'
+        - uuid: '3a000008000040008000000000000008'
+          name: 'Horizon: True SSO discovery'
+          type: DEPENDENT
+          key: horizon.discovery.true_sso
+          master_item:
+            key: horizon.raw.true_sso
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      if (!Array.isArray(d)) return '[]';
+                      return JSON.stringify(d.map(function(s){
+                          return {'{#SSO.NAME}':s.name||s.id,'{#SSO.ID}':s.id};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4a200001000040008000000000000001'
+              name: 'True SSO [{#SSO.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.sso.status[{#SSO.NAME}]'
+              master_item:
+                key: horizon.raw.true_sso
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return (x.name||x.id)==="{#SSO.NAME}";})[0];return s?(s.status||s.health||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: true-sso
+          trigger_prototypes:
+            - uuid: '5a200001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.sso.status[{#SSO.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.sso.status[{#SSO.NAME}])<>"UNKNOWN"'
+              name: 'True SSO [{#SSO.NAME}]: Status is {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: true-sso
+        - uuid: '3a000009000040008000000000000009'
+          name: 'Horizon: SAML Authenticators discovery'
+          type: DEPENDENT
+          key: horizon.discovery.saml_authenticators
+          master_item:
+            key: horizon.raw.saml_authenticators
+          delay: '0'
+          lifetime: 7d
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      if (!Array.isArray(d)) return '[]';
+                      return JSON.stringify(d.map(function(s){
+                          return {'{#SAML.NAME}':s.name||s.id,'{#SAML.ID}':s.id};
+                      }));
+                  } catch(e) { return '[]'; }
+          item_prototypes:
+            - uuid: '4a300001000040008000000000000001'
+              name: 'SAML [{#SAML.NAME}]: Status'
+              type: DEPENDENT
+              key: 'horizon.saml.status[{#SAML.NAME}]'
+              master_item:
+                key: horizon.raw.saml_authenticators
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: CHAR
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return (x.name||x.id)==="{#SAML.NAME}";})[0];return s?(s.status||s.health||"UNKNOWN"):"UNKNOWN";}catch(e){return "UNKNOWN";}'
+              tags:
+                - tag: component
+                  value: saml
+            - uuid: '4a300002000040008000000000000002'
+              name: 'SAML [{#SAML.NAME}]: Certificate valid'
+              type: DEPENDENT
+              key: 'horizon.saml.cert.valid[{#SAML.NAME}]'
+              master_item:
+                key: horizon.raw.saml_authenticators
+              delay: '0'
+              history: 7d
+              trends: '0'
+              value_type: UNSIGNED
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return (x.name||x.id)==="{#SAML.NAME}";})[0];if(!s||!s.certificate)return 1;return s.certificate.valid?1:0;}catch(e){return 1;}'
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '4a300003000040008000000000000003'
+              name: 'SAML [{#SAML.NAME}]: Certificate expiry (days)'
+              type: DEPENDENT
+              key: 'horizon.saml.cert.expiry_days[{#SAML.NAME}]'
+              master_item:
+                key: horizon.raw.saml_authenticators
+              delay: '0'
+              history: 7d
+              trends: 90d
+              value_type: FLOAT
+              units: days
+              preprocessing:
+                - type: JAVASCRIPT
+                  parameters:
+                    - 'try{var d=JSON.parse(value),s=d.filter(function(x){return (x.name||x.id)==="{#SAML.NAME}";})[0];if(!s||!s.certificate||!s.certificate.valid_to)return -1;return Math.floor((s.certificate.valid_to-Date.now())/86400000);}catch(e){return -1;}'
+              tags:
+                - tag: component
+                  value: certificate
+          trigger_prototypes:
+            - uuid: '5a300001000040008000000000000001'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.saml.status[{#SAML.NAME}])<>"OK" and last(/Omnissa Horizon Connection Server/horizon.saml.status[{#SAML.NAME}])<>"UNKNOWN"'
+              name: 'SAML Authenticator [{#SAML.NAME}]: Status is {ITEM.VALUE}'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: saml
+            - uuid: '5a300002000040008000000000000002'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.saml.cert.valid[{#SAML.NAME}])=0'
+              name: 'SAML [{#SAML.NAME}]: Certificato non valido'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5a300003000040008000000000000003'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.saml.cert.expiry_days[{#SAML.NAME}])<{$HORIZON.CERT.EXPIRY.CRIT} and last(/Omnissa Horizon Connection Server/horizon.saml.cert.expiry_days[{#SAML.NAME}])>=0'
+              name: 'SAML [{#SAML.NAME}]: Certificato scade tra {ITEM.VALUE} giorni (CRITICO)'
+              priority: HIGH
+              tags:
+                - tag: component
+                  value: certificate
+            - uuid: '5a300004000040008000000000000004'
+              expression: 'last(/Omnissa Horizon Connection Server/horizon.saml.cert.expiry_days[{#SAML.NAME}])<{$HORIZON.CERT.EXPIRY.WARN} and last(/Omnissa Horizon Connection Server/horizon.saml.cert.expiry_days[{#SAML.NAME}])>={$HORIZON.CERT.EXPIRY.CRIT}'
+              name: 'SAML [{#SAML.NAME}]: Certificato scade tra {ITEM.VALUE} giorni'
+              priority: WARNING
+              tags:
+                - tag: component
+                  value: certificate
+  triggers:
+    - uuid: '6a000001000040008000000000000001'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.count.ok)<last(/Omnissa Horizon Connection Server/horizon.cs.count) and last(/Omnissa Horizon Connection Server/horizon.cs.count)>0'
+      name: 'Horizon: Uno o piu Connection Server in errore'
+      priority: HIGH
+      tags:
+        - tag: component
+          value: connection-server
+    - uuid: '6a000002000040008000000000000002'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.cs.count.ok)=0'
+      name: 'Horizon: TUTTI i Connection Server in errore - SERVIZIO INDISPONIBILE'
+      priority: DISASTER
+      tags:
+        - tag: component
+          value: connection-server
+    - uuid: '6a000003000040008000000000000003'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.eventdb.status)<>"CONNECTED" and last(/Omnissa Horizon Connection Server/horizon.eventdb.status)<>"NOT_CONFIGURED"'
+      name: 'Horizon: Event Database disconnesso (status: {ITEM.VALUE})'
+      priority: WARNING
+      tags:
+        - tag: component
+          value: event-database
+    - uuid: '6a000004000040008000000000000004'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.sessions.total)>{$HORIZON.SESSION.WARN}'
+      name: 'Horizon: Sessioni totali elevate ({ITEM.VALUE} > {$HORIZON.SESSION.WARN})'
+      priority: WARNING
+      tags:
+        - tag: component
+          value: sessions
+    - uuid: '6a000005000040008000000000000005'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.machines.error_count)>{$HORIZON.MACHINE.ERR.WARN}'
+      name: 'Horizon: {ITEM.VALUE} macchine in stato ERROR'
+      priority: AVERAGE
+      description: 'Una o piu macchine sono in stato ERROR. Verificare i pool.'
+      tags:
+        - tag: component
+          value: machines
+    - uuid: '6a000006000040008000000000000006'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.machines.unreachable_count)>0'
+      name: 'Horizon: {ITEM.VALUE} macchine con agent non raggiungibile'
+      priority: WARNING
+      tags:
+        - tag: component
+          value: machines
+    - uuid: '6a000007000040008000000000000007'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.license.pct)>{$HORIZON.LICENSE.CRIT.PCT}'
+      name: 'Horizon: Licenze quasi esaurite - utilizzo {ITEM.VALUE}%'
+      priority: HIGH
+      description: 'Utilizzo licenze concurrent superiore al {$HORIZON.LICENSE.CRIT.PCT}%'
+      tags:
+        - tag: component
+          value: license
+    - uuid: '6a000008000040008000000000000008'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.license.pct)>{$HORIZON.LICENSE.WARN.PCT} and last(/Omnissa Horizon Connection Server/horizon.license.pct)<={$HORIZON.LICENSE.CRIT.PCT}'
+      name: 'Horizon: Utilizzo licenze elevato ({ITEM.VALUE}%)'
+      priority: WARNING
+      tags:
+        - tag: component
+          value: license
+
+  graphs:
+    - uuid: '7a000001000040008000000000000001'
+      name: 'Horizon: Sessioni attive'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.local
+        - sortorder: '1'
+          color: 2774A4
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.remote
+        - sortorder: '2'
+          color: F68C20
+          drawtype: BOLD_LINE
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.total
+
+    - uuid: '7a000002000040008000000000000002'
+      name: 'Horizon: Connection Servers - connessioni'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.cs.count.ok
+        - sortorder: '1'
+          color: E45959
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.cs.count
+        - sortorder: '2'
+          color: 2774A4
+          yaxisside: RIGHT
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.cs.total.connections
+
+    - uuid: '7a000003000040008000000000000003'
+      name: 'Horizon: Stato macchine VDI'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.machines.available_count
+        - sortorder: '1'
+          color: 2774A4
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.machines.connected_count
+        - sortorder: '2'
+          color: F7A928
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.machines.disconnected_count
+        - sortorder: '3'
+          color: E45959
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.machines.error_count
+        - sortorder: '4'
+          color: F68C20
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.machines.unreachable_count
+
+    - uuid: '7a000004000040008000000000000004'
+      name: 'Horizon: Utilizzo licenze concurrent'
+      graph_items:
+        - color: 2774A4
+          drawtype: BOLD_LINE
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.license.concurrent_usage
+        - sortorder: '1'
+          color: E45959
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.license.limit
+        - sortorder: '2'
+          color: F68C20
+          yaxisside: RIGHT
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.license.pct
