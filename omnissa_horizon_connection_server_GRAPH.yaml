@@ -591,44 +591,6 @@ zabbix_export:
             - tag: component
               value: event-database
         - uuid: '2a000005000040008000000000000005'
-          name: 'Horizon: Sessions - local count'
-          type: DEPENDENT
-          key: horizon.sessions.local
-          master_item:
-            key: horizon.raw.sessions_metrics
-          delay: '0'
-          history: 7d
-          trends: 90d
-          value_type: UNSIGNED
-          preprocessing:
-            - type: JSONPATH
-              parameters:
-                - '$.local_session_count'
-              error_handler: CUSTOM_VALUE
-              error_handler_params: '0'
-          tags:
-            - tag: component
-              value: sessions
-        - uuid: '2a000006000040008000000000000006'
-          name: 'Horizon: Sessions - remote count'
-          type: DEPENDENT
-          key: horizon.sessions.remote
-          master_item:
-            key: horizon.raw.sessions_metrics
-          delay: '0'
-          history: 7d
-          trends: 90d
-          value_type: UNSIGNED
-          preprocessing:
-            - type: JSONPATH
-              parameters:
-                - '$.remote_session_count'
-              error_handler: CUSTOM_VALUE
-              error_handler_params: '0'
-          tags:
-            - tag: component
-              value: sessions
-        - uuid: '2a000007000040008000000000000007'
           name: 'Horizon: Sessions - total'
           type: DEPENDENT
           key: horizon.sessions.total
@@ -638,17 +600,251 @@ zabbix_export:
           history: 7d
           trends: 90d
           value_type: UNSIGNED
+          description: 'Totale sessioni attive nel pod (campo num_sessions)'
           preprocessing:
-            - type: JAVASCRIPT
+            - type: JSONPATH
               parameters:
-                - |
-                  try {
-                      var d = JSON.parse(value);
-                      return (d.local_session_count||0) + (d.remote_session_count||0);
-                  } catch(e) { return 0; }
+                - '$.num_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
           tags:
             - tag: component
               value: sessions
+        - uuid: '2a000006000040008000000000000006'
+          name: 'Horizon: Sessions - unique users'
+          type: DEPENDENT
+          key: horizon.sessions.users
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Numero utenti unici connessi (campo num_users)'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.num_users'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000007000040008000000000000007'
+          name: 'Horizon: Sessions - application active'
+          type: DEPENDENT
+          key: horizon.sessions.app.active
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Sessioni applicazioni pubblicate attive (RDSH/App Virtualization)'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.application_session_metrics.num_active_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000030000040008000000000000030'
+          name: 'Horizon: Sessions - application idle'
+          type: DEPENDENT
+          key: horizon.sessions.app.idle
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Sessioni applicazioni pubblicate idle (utente connesso ma inattivo)'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.application_session_metrics.num_idle_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000031000040008000000000000031'
+          name: 'Horizon: Sessions - application disconnected'
+          type: DEPENDENT
+          key: horizon.sessions.app.disconnected
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.application_session_metrics.num_disconnected_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000032000040008000000000000032'
+          name: 'Horizon: Sessions - desktop active'
+          type: DEPENDENT
+          key: horizon.sessions.desktop.active
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Sessioni desktop VDI attive'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.desktop_session_metrics.num_active_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000033000040008000000000000033'
+          name: 'Horizon: Sessions - desktop disconnected'
+          type: DEPENDENT
+          key: horizon.sessions.desktop.disconnected
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.desktop_session_metrics.num_disconnected_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000034000040008000000000000034'
+          name: 'Horizon: Sessions - BLAST protocol'
+          type: DEPENDENT
+          key: horizon.sessions.protocol.blast
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.protocol_metrics.num_blast_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000035000040008000000000000035'
+          name: 'Horizon: Sessions - PCoIP protocol'
+          type: DEPENDENT
+          key: horizon.sessions.protocol.pcoip
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.protocol_metrics.num_pcoip_sessions'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000036000040008000000000000036'
+          name: 'Horizon: Sessions - via external gateway (UAG)'
+          type: DEPENDENT
+          key: horizon.sessions.gw.external
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Sessioni che transitano attraverso un UAG esterno'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.gateway_metrics.num_external_gateways'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000037000040008000000000000037'
+          name: 'Horizon: Sessions - via internal gateway'
+          type: DEPENDENT
+          key: horizon.sessions.gw.internal
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Sessioni interne (senza passare per UAG)'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.gateway_metrics.num_internal_gateways'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000038000040008000000000000038'
+          name: 'Horizon: Sessions - Windows clients'
+          type: DEPENDENT
+          key: horizon.sessions.clients.windows
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.client_metrics.num_windows_clients'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+        - uuid: '2a000039000040008000000000000039'
+          name: 'Horizon: Sessions - Mac clients'
+          type: DEPENDENT
+          key: horizon.sessions.clients.mac
+          master_item:
+            key: horizon.raw.sessions_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.client_metrics.num_mac_clients'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: sessions
+
         - uuid: '2a000008000040008000000000000008'
           name: 'Horizon: License - concurrent usage'
           type: DEPENDENT
@@ -986,6 +1182,31 @@ zabbix_export:
                       return (d.available_count||0)+(d.connected_count||0)+
                              (d.disconnected_count||0)+(d.error_count||0)+
                              (d.agent_unreachable_count||0)+(d.maintenance_count||0);
+                  } catch(e) { return 0; }
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000027000040008000000000000027'
+          name: 'Horizon: RDS Sessions total (from farms)'
+          type: DEPENDENT
+          key: horizon.rds.sessions.total
+          master_item:
+            key: horizon.raw.farms
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: |
+            Totale sessioni RDSH calcolato sommando session_count di tutte le farm.
+            Piu affidabile di sessions/metrics in ambienti puramente RDSH.
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      if (!Array.isArray(d)) return 0;
+                      return d.reduce(function(s, f) { return s + (f.session_count || 0); }, 0);
                   } catch(e) { return 0; }
           tags:
             - tag: component
@@ -2152,24 +2373,36 @@ zabbix_export:
     - uuid: '7a000001000040008000000000000001'
       name: 'Horizon: Sessioni attive'
       graph_items:
-        - color: 1A7C11
-          calc_fnc: LAST
-          item:
-            host: 'Omnissa Horizon Connection Server'
-            key: horizon.sessions.local
-        - sortorder: '1'
-          color: 2774A4
-          calc_fnc: LAST
-          item:
-            host: 'Omnissa Horizon Connection Server'
-            key: horizon.sessions.remote
-        - sortorder: '2'
-          color: F68C20
+        - color: F68C20
           drawtype: BOLD_LINE
           calc_fnc: LAST
           item:
             host: 'Omnissa Horizon Connection Server'
             key: horizon.sessions.total
+        - sortorder: '1'
+          color: 2774A4
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.app.active
+        - sortorder: '2'
+          color: 1A7C11
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.app.idle
+        - sortorder: '3'
+          color: F7A928
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.desktop.active
+        - sortorder: '4'
+          color: AB47BC
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.sessions.gw.external
 
     - uuid: '7a000002000040008000000000000002'
       name: 'Horizon: Connection Servers - connessioni'
