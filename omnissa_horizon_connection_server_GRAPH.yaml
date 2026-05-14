@@ -490,6 +490,36 @@ zabbix_export:
             - tag: component
               value: saml
         # ── AGGREGATE DEPENDENT ITEMS ─────────────────────────────────
+        - uuid: '1a000020000040008000000000000020'
+          name: 'Horizon: RDS Servers count metrics raw data'
+          type: SCRIPT
+          key: horizon.raw.rds_count_metrics
+          delay: 1m
+          history: 1h
+          trends: '0'
+          value_type: TEXT
+          description: 'GET /monitor/v1/rds-servers/count-metrics - conteggi server RDSH per stato'
+          params: |
+            function horizonApi(path, fallback) {
+                var url = '{$HORIZON.URL}'.replace(/\/rest\/?$/, '').replace(/\/$/, '');
+                var req = new HttpRequest();
+                try { req.setSSLVerifyPeer(false); req.setSSLVerifyHost(false); } catch(e) {}
+                req.addHeader('Content-Type: application/json');
+                var lr = req.post(url + '/rest/login', JSON.stringify({domain:'{$HORIZON.DOMAIN}',username:'{$HORIZON.USER}',password:'{$HORIZON.PASSWORD}'}));
+                if (req.getStatus() !== 200) throw 'Login failed: HTTP ' + req.getStatus();
+                var auth = JSON.parse(lr);
+                req.addHeader('Authorization: Bearer ' + auth.access_token);
+                var resp = req.get(url + path);
+                var sc = req.getStatus();
+                try { req.post(url + '/rest/logout', JSON.stringify({refresh_token: auth.refresh_token})); } catch(e) {}
+                if (sc === 404 && fallback !== undefined) return fallback;
+                if (sc !== 200) throw 'API error: HTTP ' + sc + ' on ' + path;
+                return resp;
+            }
+            return horizonApi('/rest/monitor/v1/rds-servers/count-metrics', '{}');
+          tags:
+            - tag: component
+              value: rds-server
         - uuid: '2a000001000040008000000000000001'
           name: 'Horizon: Connection Servers count'
           type: DEPENDENT
@@ -819,6 +849,147 @@ zabbix_export:
           tags:
             - tag: component
               value: machines
+        - uuid: '2a000020000040008000000000000020'
+          name: 'Horizon: RDS Servers - available count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.available_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Server RDSH in stato AVAILABLE (pronti ad accettare sessioni)'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.available_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000021000040008000000000000021'
+          name: 'Horizon: RDS Servers - connected count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.connected_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Server RDSH con sessioni attive'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.connected_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000022000040008000000000000022'
+          name: 'Horizon: RDS Servers - disconnected count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.disconnected_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.disconnected_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000023000040008000000000000023'
+          name: 'Horizon: RDS Servers - error count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.error_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Server RDSH in stato ERROR - trigger immediato'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.error_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000024000040008000000000000024'
+          name: 'Horizon: RDS Servers - agent unreachable count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.unreachable_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          description: 'Server RDSH con agent non raggiungibile dal CS'
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.agent_unreachable_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000025000040008000000000000025'
+          name: 'Horizon: RDS Servers - maintenance count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.maintenance_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JSONPATH
+              parameters:
+                - '$.maintenance_count'
+              error_handler: CUSTOM_VALUE
+              error_handler_params: '0'
+          tags:
+            - tag: component
+              value: rds-server
+        - uuid: '2a000026000040008000000000000026'
+          name: 'Horizon: RDS Servers - total count'
+          type: DEPENDENT
+          key: horizon.rds_metrics.total_count
+          master_item:
+            key: horizon.raw.rds_count_metrics
+          delay: '0'
+          history: 7d
+          trends: 90d
+          value_type: UNSIGNED
+          preprocessing:
+            - type: JAVASCRIPT
+              parameters:
+                - |
+                  try {
+                      var d = JSON.parse(value);
+                      return (d.available_count||0)+(d.connected_count||0)+
+                             (d.disconnected_count||0)+(d.error_count||0)+
+                             (d.agent_unreachable_count||0)+(d.maintenance_count||0);
+                  } catch(e) { return 0; }
+          tags:
+            - tag: component
+              value: rds-server
         - uuid: '2a000013000040008000000000000013'
           name: 'Horizon: Desktop Pools count'
           type: DEPENDENT
@@ -1961,6 +2132,21 @@ zabbix_export:
       tags:
         - tag: component
           value: license
+    - uuid: '6a000009000040008000000000000009'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.rds_metrics.error_count)>0'
+      name: 'Horizon: {ITEM.VALUE} RDS Server in stato ERROR'
+      priority: AVERAGE
+      description: 'Uno o piu server RDSH sono in stato ERROR. Verificare le farm.'
+      tags:
+        - tag: component
+          value: rds-server
+    - uuid: '6a00000a00004000800000000000000a'
+      expression: 'last(/Omnissa Horizon Connection Server/horizon.rds_metrics.unreachable_count)>0'
+      name: 'Horizon: {ITEM.VALUE} RDS Server con agent non raggiungibile'
+      priority: WARNING
+      tags:
+        - tag: component
+          value: rds-server
 
   graphs:
     - uuid: '7a000001000040008000000000000001'
@@ -2062,3 +2248,41 @@ zabbix_export:
           item:
             host: 'Omnissa Horizon Connection Server'
             key: horizon.license.pct
+    - uuid: '7a000005000040008000000000000005'
+      name: 'Horizon: Stato RDS Servers (RDSH)'
+      graph_items:
+        - color: 1A7C11
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.rds_metrics.available_count
+        - sortorder: '1'
+          color: 2774A4
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.rds_metrics.connected_count
+        - sortorder: '2'
+          color: F7A928
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.rds_metrics.disconnected_count
+        - sortorder: '3'
+          color: E45959
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.rds_metrics.error_count
+        - sortorder: '4'
+          color: F68C20
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.rds_metrics.unreachable_count
+        - sortorder: '5'
+          color: AB47BC
+          calc_fnc: LAST
+          item:
+            host: 'Omnissa Horizon Connection Server'
+            key: horizon.rds_metrics.maintenance_count

@@ -64,6 +64,7 @@ Monitora un pod Omnissa Horizon 8 tramite le **Horizon Server REST API** (versio
 | Virtual Centers | `GET /rest/monitor/v4/virtual-centers` | 2 min |
 | Farms RDSH | `GET /rest/monitor/v2/farms` | 2 min |
 | RDS Servers | `GET /rest/monitor/v2/rds-servers` | 2 min |
+| RDS Servers count metrics | `GET /rest/monitor/v1/rds-servers/count-metrics` | 1 min |
 | Gateways (UAG) | `GET /rest/monitor/v5/gateways` | 2 min |
 | AD Domains | `GET /rest/monitor/v4/ad-domains` | 5 min |
 | Event Database | `GET /rest/monitor/v2/event-database` | 5 min |
@@ -105,9 +106,14 @@ Per ogni CS scoperto nel pod vengono creati automaticamente:
 | License limit | Limite totale licenze |
 | License utilization % | Percentuale di utilizzo |
 | License highest usage | Picco storico di utilizzo |
-| Machines available / connected / disconnected | Conteggi macchine VDI per stato |
-| Machines error count | Macchine in stato ERROR |
-| Machines agent unreachable | Macchine con agent non raggiungibile |
+| Machines available / connected / disconnected | Conteggi macchine VDI per stato (solo desktop virtuali) |
+| Machines error count | Macchine VDI in stato ERROR |
+| Machines agent unreachable | Macchine VDI con agent non raggiungibile |
+| RDS Servers available / connected / disconnected | Conteggi server RDSH per stato |
+| RDS Servers error count | Server RDSH in stato ERROR |
+| RDS Servers agent unreachable | Server RDSH con agent non raggiungibile |
+| RDS Servers maintenance count | Server RDSH in manutenzione |
+| RDS Servers total count | Totale server RDSH calcolato |
 | Desktop Pools count | Numero pool configurati |
 | Event Database status | CONNECTED / DISCONNECTED / NOT_CONFIGURED |
 
@@ -146,8 +152,10 @@ Le soglie di scadenza sono configurabili tramite macro `{$HORIZON.CERT.EXPIRY.WA
 | Uno o più CS in errore | HIGH | CS OK < CS totali |
 | Event Database disconnesso | WARNING | Status ≠ CONNECTED e ≠ NOT_CONFIGURED |
 | Sessioni totali elevate | WARNING | Totale > `{$HORIZON.SESSION.WARN}` |
-| Macchine in stato ERROR | AVERAGE | Error count > `{$HORIZON.MACHINE.ERR.WARN}` |
-| Macchine agent non raggiungibili | WARNING | Unreachable count > 0 |
+| Macchine VDI in stato ERROR | AVERAGE | VDI error count > `{$HORIZON.MACHINE.ERR.WARN}` |
+| Macchine VDI agent non raggiungibili | WARNING | VDI unreachable count > 0 |
+| RDS Server in stato ERROR | AVERAGE | RDSH error count > 0 |
+| RDS Server agent non raggiungibile | WARNING | RDSH unreachable count > 0 |
 | Licenze quasi esaurite | HIGH | Utilizzo > `{$HORIZON.LICENSE.CRIT.PCT}` |
 | Utilizzo licenze elevato | WARNING | Utilizzo > `{$HORIZON.LICENSE.WARN.PCT}` |
 
@@ -157,7 +165,8 @@ Le soglie di scadenza sono configurabili tramite macro `{$HORIZON.CERT.EXPIRY.WA
 - AD Domain: status
 - Gateway: status, certificato
 - Farm: health
-- RDS Server: status (stati normali: AVAILABLE, OK)
+- RDS Server: status (stati normali: AVAILABLE, OK), sessioni, agent version per server (LLD)
+- RDS Server globali: error count e agent unreachable (da `/rds-servers/count-metrics`)
 - Desktop Pool: health, errori provisioning, agent unreachable, nessuna macchina available
 - True SSO: status
 - SAML: status, certificato
@@ -234,7 +243,8 @@ Versione identica al Template 1 con l'aggiunta di **grafici preconfigurati**. St
 |---------|-------------|
 | Horizon: Sessioni attive | Sessioni locali, remote e totali nel tempo |
 | Horizon: Connection Servers - connessioni | CS OK/totali + connessioni aggregate (asse Y destra) |
-| Horizon: Stato macchine VDI | Available / Connected / Disconnected / Error / Unreachable |
+| Horizon: Stato macchine VDI | Available / Connected / Disconnected / Error / Unreachable (solo desktop virtuali) |
+| Horizon: Stato RDS Servers (RDSH) | Available / Connected / Disconnected / Error / Unreachable / Maintenance per server RDSH |
 | Horizon: Utilizzo licenze concurrent | Utilizzo corrente, limite e percentuale (asse Y destra) |
 
 **Graph prototypes LLD** (si generano automaticamente per ogni istanza scoperta):
@@ -372,6 +382,8 @@ systemctl start snmpd
 - **Horizon REST API:** ogni item master esegue un login e un logout separati. Con 14 endpoint e intervalli da 1-5 minuti si generano circa 30-50 autenticazioni/minuto sul CS. L'account di servizio non deve avere restrizioni sul numero di sessioni simultanee.
 
 - **Certificati self-signed:** se il CS usa certificati non firmati da una CA trusted, il metodo `setSSLVerifyPeer(false)` potrebbe non essere disponibile sullo script item a seconda della build di Zabbix. In questo caso è necessario importare il certificato nel trust store del Zabbix Server/Proxy (vedi sezione Prerequisiti del Template 1).
+
+- **VDI vs RDSH:** `/monitor/v1/machines/count-metrics` conta solo le macchine desktop virtuali (VDI). In ambienti puramente RDSH questo item restituisce sempre 0 — è normale. I conteggi degli RDS server sono invece monitorati separatamente tramite `/monitor/v1/rds-servers/count-metrics` (item `horizon.rds_metrics.*`) con trigger e grafico dedicati.
 
 - **Endpoint 404:** se un endpoint non esiste nell'ambiente (es. nessuna Farm RDSH, nessun True SSO), il relativo item restituisce `[]` o `{}` silenziosamente senza generare errori. La LLD scoprirà semplicemente zero elementi.
 
